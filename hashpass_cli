@@ -4,6 +4,7 @@ import argparse
 import sys
 from getpass import getpass
 from hashpass import Hashpass, HashpassError
+from os import path
 try:
     import clipboard
     use_clipboard = True
@@ -17,6 +18,7 @@ class color:
 # Retrieve arguments
 parser = argparse.ArgumentParser(description=color.BOLD + 'PASSWORD' + color.END)
 parser.add_argument("label", help="")
+parser.add_argument('--context', help='Records file context', default ='')
 parser.add_argument('--file', help='Records file', default ='')
 parser.add_argument('--auto', help='automatically load parameters from file', action='store_true')
 parser.add_argument('--salt', help='salt', default='')
@@ -31,7 +33,15 @@ master_secret = getpass('Please enter you master secret: ')
 hashpass = Hashpass()
 
 # Load stored records
-if args.file:
+if args.context:
+    try:
+        with open(path.join(path.dirname(__file__), args.context)) as f:
+            records_file = f.readlines()[0]
+        hashpass.load_records(records_file)
+    except:
+        print('Error: failed to load context records')
+        sys.exit(1)
+elif args.file:
     hashpass.load_records(args.file)
 
 try:

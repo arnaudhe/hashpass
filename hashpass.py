@@ -2,7 +2,6 @@ import base64
 import hmac
 import json
 from hashlib import sha256
-from pathlib import Path
 
 class HashpassError(Exception):
 

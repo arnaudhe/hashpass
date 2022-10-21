@@ -1,0 +1,198 @@
+#! /usr/local/bin/python3
+
+import sys
+
+from PyQt5 import QtWidgets, QtCore
+from qtwidgets import PasswordEdit
+import qt_material
+import clipboard
+from os import path
+from hashpass import Hashpass, HashpassError
+
+class HashpassLabel(QtWidgets.QLabel):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setStyleSheet(f"color: {self.theme['primaryColor']}")
+
+    @classmethod
+    def set_theme(cls, theme):
+        cls.theme = theme
+
+class HashpassCheckBox(QtWidgets.QCheckBox):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setStyleSheet(f"color: {self.theme['primaryColor']}")
+
+    @classmethod
+    def set_theme(cls, theme):
+        cls.theme = theme
+
+class HashpassSpinBox(QtWidgets.QHBoxLayout):
+
+    def __init__(self, text, min_value, max_value, default_value):
+        super().__init__()
+        self.spinbox = ()
+
+        self.addWidget(self.spinbox)
+        self.addWidget(HashpassLabel(text))
+
+    def value(self):
+        return self.spinbox.value()
+
+class HashpassGui(QtWidgets.QWidget):
+
+    theme_name = 'dark_cyan.xml'
+    records_file = 'records.json'
+
+    def __init__(self, context = None):
+        super().__init__()
+        self.setup_style()
+        self.layout = QtWidgets.QVBoxLayout()
+
+        if context:
+            try:
+                with open(path.join(path.dirname(__file__), context)) as f:
+                    self.records_file = f.readlines()[0]
+            except Exception as e:
+                print('Error: failed to load context records', e)
+                sys.exit(1)
+        else:
+            self.records_file = HashpassGui.records_file
+
+        self.label_text = QtWidgets.QLineEdit()
+        self.label_combo = QtWidgets.QComboBox()
+
+        self.params_nospecials_checkbox = QtWidgets.QCheckBox()
+        self.params_length_spinbox = QtWidgets.QSpinBox()
+        self.params_length_spinbox.setMinimum(8)
+        self.params_length_spinbox.setMaximum(45)
+        self.params_salt_text = QtWidgets.QLineEdit()
+        self.params_layout = self.setup_parameters([('Salt', self.params_salt_text),
+                                                    ('Length', self.params_length_spinbox),
+                                                    ('Remove special characters', self.params_nospecials_checkbox)])
+
+        self.compute_button = QtWidgets.QPushButton('compute')
+        self.compute_label = QtWidgets.QLabel()
+        self.compute_label.setFixedHeight(28)
+
+        self.master_password_text = PasswordEdit()
+
+        self.setup_title()
+        self.add_section('LABEL', [self.label_combo, self.label_text])
+        self.add_layout('PARAMETERS', self.params_layout)
+        self.add_section('MASTER PASSWORD', [self.master_password_text])
+        self.add_section('COMPUTE', [self.compute_button, self.compute_label])
+
+        self.setLayout(self.layout)
+        self.setFixedWidth(600)
+        self.setFixedHeight(600)
+
+        self.label_combo.currentTextChanged.connect(self.label_selected)
+        self.label_text.textChanged.connect(self.label_changed)
+        self.compute_button.clicked.connect(self.compute_password)
+
+        self.hashpass = Hashpass()
+        self.load_records()
+
+    def load_records(self):
+        self.hashpass.load_records(self.records_file)
+        self.label_combo.clear()
+        self.label_combo.addItem("")
+        labels = list(self.hashpass.get_records_parameters().keys())
+        labels.sort()
+        self.label_combo.addItems(labels)
+        self.params_length_spinbox.setValue(45)
+        self.params_salt_text.setText('')
+        self.params_nospecials_checkbox.setChecked(False)
+
+    def setup_style(self):
+         # setup stylesheet
+        self.theme = qt_material.get_theme(HashpassGui.theme_name)
+        HashpassLabel.set_theme(self.theme)
+        HashpassCheckBox.set_theme(self.theme)
+        qt_material.apply_stylesheet(app, theme=HashpassGui.theme_name)
+
+    def setup_title(self):
+        title = HashpassLabel("HASHPASS")
+        title.setStyleSheet(f'font-size: 30px; color: {self.theme["primaryColor"]}')
+        title.setAlignment(QtCore.Qt.AlignCenter)
+        self.layout.addWidget(title)
+
+    def setup_parameters(self, parameters):
+        grid = QtWidgets.QGridLayout()
+        row = 0
+        for name, widget in parameters:
+            grid.addWidget(widget, row, 0)
+            grid.addWidget(HashpassLabel(name), row, 1)
+            row = row + 1
+        return grid
+
+    def add_section(self, name, widgets):
+        self.layout.addItem(QtWidgets.QSpacerItem(10, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+        self.layout.addWidget(HashpassLabel(name))
+        for w in widgets:
+            self.layout.addWidget(w)
+
+    def add_layout(self, name, layout):
+        self.layout.addItem(QtWidgets.QSpacerItem(10, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding))
+        self.layout.addWidget(HashpassLabel(name))
+        self.layout.addLayout(layout)
+
+    def label_selected(self, label):
+        self.label_text.setText(label)
+
+    def label_changed(self, label):
+        if label in self.hashpass.get_records_parameters():
+            parameters = self.hashpass.get_records_parameters()[label]
+            self.params_salt_text.setText(parameters['salt'])
+            self.params_nospecials_checkbox.setChecked(parameters['nospecials'])
+            self.params_length_spinbox.setValue(parameters['length'])
+            self.display_success(f'Parameters loaded for {label}')
+        else:
+            self.display_nothing()
+
+    def compute_password(self):
+        if len(self.master_password_text.text()) and len(self.label_text.text()):
+            try:
+                password = self.hashpass.compute_password(self.master_password_text.text(), self.label_text.text(), self.params_salt_text.text(), 
+                                                        self.params_nospecials_checkbox.isChecked(), self.params_length_spinbox.value())
+                clipboard.copy(password)
+                self.display_success(f"Password {password[0] + ('*' * (len(password) - 1))} (copied in your clipboard)")
+            except HashpassError as e:
+                self.display_error(str(e))
+            # Check if records can by stored
+            if self.hashpass.is_updated():
+                ret = QtWidgets.QMessageBox.question(self, '', "Records updated. Do you want to save them ?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+                if ret == QtWidgets.QMessageBox.Yes:
+                    self.hashpass.save_records()
+                    self.display_success(f'Records successfully saved.')
+                self.load_records()
+        else:
+            self.display_error('Invalid input length')
+
+    def display_nothing(self):
+        self.compute_label.setText('')
+        self.compute_label.setStyleSheet(f'border: none')
+
+    def display_success(self, message):
+        self.compute_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.compute_label.setStyleSheet(f'color: #96BE78; border: 2px solid #96BE78')
+        self.compute_label.setText(message)
+
+    def display_error(self, message):
+        self.compute_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.compute_label.setStyleSheet(f'color: #B06060; border: 2px solid #B06060')
+        self.compute_label.setText(message)
+
+if __name__ == '__main__':
+    # create the application and the main window
+    app = QtWidgets.QApplication(sys.argv)
+    if len(sys.argv) > 1:
+        context = sys.argv[1]
+    else:
+        context = None
+    gui = HashpassGui(context)
+    gui.show()
+    app.exec_()
