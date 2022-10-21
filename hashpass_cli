@@ -1,0 +1,70 @@
+#! /usr/bin/python3
+
+import argparse
+import sys
+from getpass import getpass
+from hashpass import Hashpass, HashpassError
+try:
+    import clipboard
+    use_clipboard = True
+except:
+    use_clipboard = False
+
+class color:
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+# Retrieve arguments
+parser = argparse.ArgumentParser(description=color.BOLD + 'PASSWORD' + color.END)
+parser.add_argument("label", help="")
+parser.add_argument('--file', help='Records file', default ='')
+parser.add_argument('--auto', help='automatically load parameters from file', action='store_true')
+parser.add_argument('--salt', help='salt', default='')
+parser.add_argument('--nospecials', help='Do not use special characters', action='store_true')
+parser.add_argument('--length', help='length', type=int, default=0)
+args = parser.parse_args()
+
+# Get master secret
+master_secret = getpass('Please enter you master secret: ')
+
+# Compute password
+hashpass = Hashpass()
+
+# Load stored records
+if args.file:
+    hashpass.load_records(args.file)
+
+try:
+    if args.auto:
+        password = hashpass.auto_compute_password(master_secret, args.label)
+    else:
+        password = hashpass.compute_password(master_secret, args.label, args.salt, args.nospecials, args.length)
+except HashpassError as e:
+    print('Error:', e)
+    sys.exit(1)
+
+# Output password
+print('\nYou password for {} is:'.format(color.BOLD + vars(args)['label'] + color.END))
+if use_clipboard:
+    print(password[0] + ("*" * (len(password) - 1)))
+    print('(copied in your clipboard)')
+    clipboard.copy(password)
+else:
+    print(password)
+    print('Install \"clipboard\" package to copy password into system clipboard')
+
+# Check if records can by stored
+if hashpass.is_updated():
+    store = input('\nRecords updated. Do you want to save them (Y/n) ? ')
+    if len(store) == 0 or store[0].lower() != 'n':
+        master_secret = getpass('Please verify master secret: ')
+        try:
+            if args.auto:
+                hashpass.auto_compute_password(master_secret, args.label)
+            else:
+                hashpass.compute_password(master_secret, args.label, args.salt, args.nospecials, args.length)
+        except HashpassError as e:
+            print('Error:', e)
+            sys.exit(1)
+        hashpass.save_records()
+        print('Updated records saved')
